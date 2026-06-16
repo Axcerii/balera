@@ -1,0 +1,9 @@
+node_modules
+npm-debug.log
+.env
+.git
+.gitignore
+ffmpeg-6.1.1
+src/music
+Dockerfile
+docker-compose.yml

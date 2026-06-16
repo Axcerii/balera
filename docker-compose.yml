@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  balera-bot:
+    build: .
+    container_name: balera-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./src/music:/app/src/music
