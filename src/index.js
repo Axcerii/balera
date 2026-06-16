@@ -1,7 +1,8 @@
-require('dotenv').config();
-const { Client, Events, GatewayIntentBits, SlashCommandBuilder } = require('discord.js');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
 const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
+const { Client, Events, GatewayIntentBits, SlashCommandBuilder } = require('discord.js');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, getVoiceConnection } = require('@discordjs/voice');
+const fs = require('fs');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildVoiceStates] });
 
@@ -73,6 +74,14 @@ client.on(Events.ClientReady, async () => {
                 option.setName('quantite')
                     .setDescription('Nombre de dés lancés (Max 20)')
                     .setRequired(true)
+            ),
+        new SlashCommandBuilder()
+            .setName('test')
+            .setDescription('Test de commandes')
+            .addNumberOption(option =>
+                option.setName('test')
+                    .setDescription('Test')
+                    .setRequired(true)
             )
         ]
         try {
@@ -119,6 +128,7 @@ client.on(Events.InteractionCreate, async interaction => {
             interaction.reply('Désolé... Mais votre numéro de dé est invalide...');
         }
         else{
+
             function getRandomInt(max) {
                 return Math.floor(Math.random() * max);
             }
@@ -137,6 +147,12 @@ client.on(Events.InteractionCreate, async interaction => {
         }
     }
 
+    if(commandName==='test'){
+        var piped = parseInt(interaction.options.getNumber('test'));
+
+        interaction.reply(`${piped}`);
+    }
+
     if(commandName==='mdice'){
         function IsFloat(float){
             if(Math.floor(float) == float){
@@ -146,7 +162,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 return true;
             }
         }
-
+    
         const Number = interaction.options.getNumber('faces');
         const Quantite = interaction.options.getNumber('quantite');
         var string = "";
@@ -164,7 +180,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 return Math.floor(Math.random() * max);
             }
 
-            for(ii = 0; ii < Quantite; ii++){
+            for(let ii = 0; ii < Quantite; ii++){
                 var jet = getRandomInt(Number) + 1;
 
                 if(jet == 1){
@@ -187,6 +203,10 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 
     if (commandName === 'play') {
+        const voiceChannel = interaction.member.voice?.channel;
+        if (!voiceChannel) {
+            return interaction.reply({ content: 'Vous devez être dans un salon vocal pour jouer de la musique !', ephemeral: true });
+        }
         const musicName = interaction.options.getString('track');
         queue.push(musicName);
         await handleQueue(interaction);
@@ -240,16 +260,45 @@ async function handleQueue(interaction) {
 function playMusic(interaction, musicName) {
     player.removeAllListeners();
 
-    const filePath = path.join(__dirname, 'music', `${musicName}.mp3`);
+    const musicDir = path.join(__dirname, 'music');
+    let targetFile = null;
+    try {
+        const files = fs.readdirSync(musicDir);
+        targetFile = files.find(file => file.toLowerCase() === `${musicName.toLowerCase()}.mp3`);
+    } catch (err) {
+        console.error('Erreur lors de la lecture du dossier de musique :', err);
+    }
+
+    if (!targetFile) {
+        interaction.followUp(`Désolé, la musique "${musicName}" n'a pas été trouvée.`).catch(console.error);
+        isPlaying = false;
+        queue.shift();
+        if (queue.length > 0) {
+            playMusic(interaction, queue[0]);
+        }
+        return;
+    }
+
+    const filePath = path.join(musicDir, targetFile);
     const resource = createAudioResource(filePath);
 
     player.play(resource);
-    const voiceChannel = interaction.member.voice.channel;
-    const connection = joinVoiceChannel({
-        channelId: voiceChannel.id,
-        guildId: interaction.guild.id,
-        adapterCreator: interaction.guild.voiceAdapterCreator,
-    });
+    
+    let connection = getVoiceConnection(interaction.guild.id);
+    if (!connection) {
+        const voiceChannel = interaction.member.voice?.channel;
+        if (!voiceChannel) {
+            interaction.followUp('Impossible de se connecter au salon vocal (vous n\'êtes plus connecté à un salon).').catch(console.error);
+            isPlaying = false;
+            queue = [];
+            return;
+        }
+        connection = joinVoiceChannel({
+            channelId: voiceChannel.id,
+            guildId: interaction.guild.id,
+            adapterCreator: interaction.guild.voiceAdapterCreator,
+        });
+    }
 
     connection.subscribe(player);
 
@@ -267,7 +316,10 @@ function playMusic(interaction, musicName) {
                 playMusic(interaction, queue[0]);
             } else {
                 interaction.followUp('Fin de la liste de lecture.').catch(console.error);
-                connection.destroy();
+                const activeConnection = getVoiceConnection(interaction.guild.id);
+                if (activeConnection) {
+                    activeConnection.destroy();
+                }
             }
         }
     });
@@ -277,7 +329,10 @@ function playMusic(interaction, musicName) {
         interaction.followUp('Une erreur est survenue lors de la lecture de la musique.').catch(console.error);
         isPlaying = false;
         queue = [];
-        connection.destroy();
+        const activeConnection = getVoiceConnection(interaction.guild.id);
+        if (activeConnection) {
+            activeConnection.destroy();
+        }
     });
 }
 
