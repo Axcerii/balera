@@ -63,6 +63,10 @@ client.on(Events.ClientReady, async () => {
             .setDescription('Passe à la prochaine musique dans la file d\'attente.'),
         
         new SlashCommandBuilder()
+            .setName('stop')
+            .setDescription('Arrête la musique en cours, vide la file d\'attente et déconnecte le bot.'),
+        
+        new SlashCommandBuilder()
             .setName('mdice')
             .setDescription('Lancez plusieurs dés d\'un même type.')
             .addNumberOption(option =>
@@ -243,6 +247,20 @@ client.on(Events.InteractionCreate, async interaction => {
                     await interaction.reply('Pas d\'autres chansons dans la file d\'attente.');
                 }
                 break;
+
+            case 'stop':
+                queue = [];
+                isPlaying = false;
+                isLooping = false;
+                player.stop();
+                {
+                    const connection = getVoiceConnection(interaction.guild.id);
+                    if (connection) {
+                        connection.destroy();
+                    }
+                }
+                await interaction.reply('Merci pour votre pièce, je me retire.');
+                break;
         }
 
 });
@@ -314,7 +332,8 @@ function playMusic(interaction, musicName) {
             if (queue.length > 1) {
                 queue.shift();
                 playMusic(interaction, queue[0]);
-            } else {
+            } else if (queue.length === 1) {
+                queue.shift();
                 interaction.followUp('Fin de la liste de lecture.').catch(console.error);
                 const activeConnection = getVoiceConnection(interaction.guild.id);
                 if (activeConnection) {
